@@ -52,14 +52,14 @@ class SamplingPattern():
         # Float needed for ctypes conversion
         pattern = pattern.astype('float')
 
-        self.sample_pct = sum(pattern) / (np.prod(pattern.shape) * 1.0)
+        self.sample_pct = np.sum(pattern) / (np.prod(pattern.shape) * 1.0)
         return pattern
 
     def calc_min_max(self):
         """ pull out min/max eig + ratio for display """
         if self.calcd:
-            self.max_hi = np.max(abs(self.hi_eigs))
-            self.min_low = np.min(abs(self.low_eigs))
+            self.max_hi = np.max(np.abs(self.hi_eigs))
+            self.min_low = np.min(np.abs(self.low_eigs))
             self.ratio = self.max_hi / self.min_low
 
     def str_eigs(self):

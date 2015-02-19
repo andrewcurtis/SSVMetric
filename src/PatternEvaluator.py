@@ -10,28 +10,63 @@ import time
 
 from SamplingPattern import SamplingPattern
 from defaults import base_sz
-from utils import ft, ift, ft2, ift2
+from utils import ft, ift, ft2, ift2, sumsq
 
 
 class PatternEvaluator(object):
-    """docstring for PatternEvaluator"""
+    """
+    PatternEvaluator
+    
+    Co-ordinates computation of max and min singular values associated with
+    a given SamplingPattern of k-space sample loci.
+    
+    """
+    
     def __init__(self, base_sz = BASE_N, sens=[], max_tries=2):
         super(PatternEvaluator, self).__init__()
 
         # Base size
         self.base_sz = base_sz
 
-        # The ky-kz sampling pattern we want to test.
+        # SamplingPattern instance we want to test.
         self.pattern = None
 
-        self.xnew = zeros((self.base_sz, self.base_sz), dtype='complex')
-        self.xm = zeros((self.base_sz, self.base_sz), dtype='complex')
-        self.sampling = zeros((self.base_sz, self.base_sz), dtype='float')
+        # space for the vectors we need
+        self.xnew = np.zeros((self.base_sz, self.base_sz), dtype='complex')
+        self.xm = np.zeros((self.base_sz, self.base_sz), dtype='complex')
+        # actual array of sampling loci. 
+        self.sampling = np.zeros((self.base_sz, self.base_sz), dtype='float')
 
+        # max repeats in case of arpack numerical problems
         self.max_tries = max_tries
+        
+        if sens:
+            self.sens = sens
 
+    def load_sens(self, fname, mask_eps=1e-6):
+        """
+        load coil sensitivity and masking info from file. 
+        Looking for numpy npz file with variable 'sens' 
+        Mask from sqrt-sum-of-squares of coil maps.
+        """
+        fdat = np.load(fname)
+        
+        #except error
+        
+        self.sens = fdat['sens'].copy()
+        
+        ss = sumsq(self.sens)
+        
+        self.mask = ss > mask_eps
+        self.mask_sz = np.sum(self.mask.ravel())
+        
 
     def set_norm_fac(self, p):
+        """
+        Adjust normalization factor. Used for testing overall
+        scaling behaviour of the system.
+        Use n_coils.
+        """
         if hasattr(p, 'norm_fac') and p.norm_fac > 0:
             print 'Using pattern normfac of {}'.format(p.norm_fac)
             self.norm_fac = p.norm_fac
@@ -41,6 +76,9 @@ class PatternEvaluator(object):
 
 
     def eval_pattern(self, p):
+        """
+        Main driver routine.
+        """
         self.pattern = p
         self.sampling = p.sampling.copy().astype('float')
 
@@ -55,7 +93,11 @@ class PatternEvaluator(object):
         print p.hi_eigs
         print p.low_eigs
 
+
     def solve_high(self):
+        """
+        co-ordinate calling ARPACK with our linear operator and get largest eigs
+        """
 
         t_start = time.time()
 
@@ -122,7 +164,11 @@ class PatternEvaluator(object):
                                 return_eigenvectors=True)
 
                 # sometimes it "solves" but with awful numerical problems
-                if np.any(np.abs(adyn) > 1e3):
+                # this seems to be a function of a bad input vector, and typically 
+                # is resolved by just running again. if we re-implement arpack
+                # we could probably find out why, but until then, we just check for
+                # strange values and re-compute.
+                if np.any(np.abs(adyn) > 1e3):  # much bigger than nCoils ever will be
                     continue
                 else:
                     solved = True
@@ -140,93 +186,79 @@ class PatternEvaluator(object):
         if not solved:
             self.pattern.low_eigs = -1
 
-    def calc_AtA(self):
-        nSamp = sum(sampling)
-        maskSz = sum(mask)
-        nCoils, nv, npts = sens.shape
+    def calc_AtA(self, x0):
+        """ 
+        calculate system matrix (normal equations) 
+        """
+        nSamp = np.sum(self.sampling)
+        maskSz = np.sum(self.mask)
+        nCoils, nv, npts = self.sens.shape
         if x0.dtype <> np.complex128:
             x0 = x0.astype('complex128')
-        x_img = x0[0:maskSz]
-        x_ksp = x0[maskSz:]
+        x_img = x0[self.mask]
 
-        A_fwd = zeros(nSamp*nCoils, dtype='complex')
-
-        result = zeros(maskSz, dtype='complex')
+        result = np.zeros(maskSz, dtype='complex')
 
         # Compute A
-        sys_fwd(x_img, A_fwd, sens, sampling>0, mask)
+        A_back = sys_sense(x_img, self.sens, self.sampling>0, self.mask)
 
-        #compute A^H
-        A_back = sys_bck(A_fwd, sens, sampling>0, mask)
-        result[:] = A_back[:]
+        result[:] = A_back[:] #copy / flatten
 
         return result
 
 
-def sys_fwd(im_mask, data, coils, pattern, mask):
+## --
+# Rountines for the system matrix are below.
+# To speed things up, we implement these python prototypes in C
+#
+# Note: fun testing w/ auto-jitting does little here.
+#
+# Interleaving of the FFT's and dot products are the main slowdown.
+# Interestingly, python's default fftpack doesn't do a stellar job
+# if we pass in a 3D array and ask for the 2D FT... We can look to move
+# to a fftw wrapper in future.
+#
+# Instead, we overload PatternEvaluator.calc_AtA() to call some
+# C functions via the CFFI that do fast dots and call FFTW.
+# Its a bit messier for distribution since it requries compilation.
+def sys_sense(im_mask, coils, pattern, mask):
+    """
+    linear system to go from image --> kspace
+    """
     nCoils, nv, npts  = coils.shape
     #print coils.shape
     #print data.shape
-    image = zeros((nv, npts), dtype='complex128')
+    image = np.zeros((nv, npts), dtype='complex128')
     image[mask] = im_mask
-    data.shape= (nCoils,-1)
     nD = image.ndim
     accum = 0.0
     tmpGrad = []
+    
+    zeroPat = pattern<1
 
-    #for each coil, do S^H . I
+    #compute one coil at a time to save working memory space
     for c in range(nCoils):
         coilPtr = coils[c,...]
-        dataPtr = data[c,...]
 
         # todo: zeropad
         scratch = (coilPtr) * image
         scratch = ift2(scratch)
 
-        s_reduced = scratch[pattern]
-        data[c,...] =  s_reduced[:]
-        #print sum(abs(scratch.ravel()))
+        # zero out non-sampled locations
+        scratch[zeroPat]=0
 
-
-    data.shape=(-1)
-
-
-
-
-#back
-def sys_bck(data, coils, pattern, mask):
-    nCoils, nv, npts  = coils.shape
-    #print coils.shape
-    #print data.shape
-    data.shape= (nCoils,-1)
-    nD = coils[0].ndim
-    accum = 0.0
-    tmpGrad = []
-    maskSz = sum(mask)
-    gradient = zeros(maskSz)
-    scratch = zeros_like(coils[0])
-
-    #for each coil, do S^H . I
-    for c in range(nCoils):
-        coilPtr = coils[c,...]
-        dataPtr = data[c,...]
-
-        scratch = scratch*0
-
-        scratch[pattern] = dataPtr[:]
-
+        # ft back
         scratch = ft2(scratch)
         # todo: crop
-        scratch = conj(coilPtr) * scratch
+        scratch = np.conj(coilPtr) * scratch
 
-
+        # accumulate
         gradient = gradient + scratch[mask]
-        #print sum(abs(scratch.ravel()))
 
 
-    data.shape = (-1)
     gout = (gradient)
     gout.shape = (-1)
     return gout
+
 
 
