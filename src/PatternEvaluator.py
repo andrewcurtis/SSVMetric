@@ -9,7 +9,7 @@ from scipy.sparse.linalg import ArpackError
 import time
 
 from SamplingPattern import SamplingPattern
-from defaults import base_sz
+from defaults import BASE_N
 from utils import ft, ift, ft2, ift2, sumsq
 
 
@@ -30,6 +30,10 @@ class PatternEvaluator(object):
 
         # SamplingPattern instance we want to test.
         self.pattern = None
+        
+        # init kernel for (optional) regularization
+        # regl'n not yet implemented 
+        self.init_kern18()
 
         # space for the vectors we need
         self.xnew = np.zeros((self.base_sz, self.base_sz), dtype='complex')
@@ -42,10 +46,32 @@ class PatternEvaluator(object):
         
         if sens:
             self.sens = sens
+            
+    def init_kern18(self):
+        """
+        optimized sqrt(18) radius kernel for 
+         spatial regularization filter
+        
+        """
+        self.root18 = zeros(32)
+        self.root18[1] = 0.04071725
+        self.root18[2] =  0.03499660
+        self.root18[4] =  0.02368359
+        self.root18[5] =  0.02522255
+        self.root18[8] =  0.02024067
+        self.root18[9] =  0.01407202
+        self.root18[10] =  0.01345276
+        self.root18[13] =  0.00850939
+        self.root18[16] =  0.00812839
+        self.root18[17] =  0.00491274
+        self.root18[18] =  0.00396661
+    
 
     def load_sens(self, fname, mask_eps=1e-6):
         """
         load coil sensitivity and masking info from file. 
+        Warning: assumes data size is (n_coils, nx, ny)
+        
         Looking for numpy npz file with variable 'sens' 
         Mask from sqrt-sum-of-squares of coil maps.
         """
@@ -54,6 +80,7 @@ class PatternEvaluator(object):
         #except error
         
         self.sens = fdat['sens'].copy()
+        self.n_coils = self.sens.shape[0]
         
         ss = sumsq(self.sens)
         
@@ -75,14 +102,14 @@ class PatternEvaluator(object):
             print 'Using normfac of {}'.format(self.norm_fac)
 
 
-    def eval_pattern(self, p):
+    def eval_pattern(self, pat):
         """
         Main driver routine.
         """
-        self.pattern = p
-        self.sampling = p.sampling.copy().astype('float')
+        self.pattern = pat
+        self.sampling = pat.sampling.copy().astype('float')
 
-        self.set_norm_fac(p)
+        self.set_norm_fac(pat)
 
         self.solve_high()
 
@@ -90,8 +117,8 @@ class PatternEvaluator(object):
 
         self.pattern.calcd = True
 
-        print p.hi_eigs
-        print p.low_eigs
+        print pat.hi_eigs
+        print pat.low_eigs
 
 
     def solve_high(self):
@@ -108,7 +135,7 @@ class PatternEvaluator(object):
 
         solved = False
 
-        for j in range(self.maxTries):
+        for j in range(self.max_tries):
             try:
                 a1,v1 = scipy.sparse.linalg.eigsh(
                             sysA,
@@ -152,7 +179,7 @@ class PatternEvaluator(object):
 
         solved = False
 
-        for j in range(self.maxTries):
+        for j in range(self.max_tries):
             try:
                 adyn,vdyn = scipy.sparse.linalg.eigsh(
                                 sysA,
@@ -195,7 +222,7 @@ class PatternEvaluator(object):
         nCoils, nv, npts = self.sens.shape
         if x0.dtype <> np.complex128:
             x0 = x0.astype('complex128')
-        x_img = x0[self.mask]
+        x_img = x0
 
         result = np.zeros(maskSz, dtype='complex')
 
@@ -223,7 +250,15 @@ class PatternEvaluator(object):
 # Its a bit messier for distribution since it requries compilation.
 def sys_sense(im_mask, coils, pattern, mask):
     """
-    linear system to go from image --> kspace
+    linear system for sense imaging
+    
+    input 1d vector to iterator on (from arpack)
+    - insert into 2d image mask
+    - compute 2d FT's and dots with sens
+    - sample k space
+    -  inverse
+    - extract
+    
     """
     nCoils, nv, npts  = coils.shape
     #print coils.shape
@@ -235,6 +270,7 @@ def sys_sense(im_mask, coils, pattern, mask):
     tmpGrad = []
     
     zeroPat = pattern<1
+    gradient = np.zeros_like(im_mask)
 
     #compute one coil at a time to save working memory space
     for c in range(nCoils):

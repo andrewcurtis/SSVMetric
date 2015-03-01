@@ -26,10 +26,10 @@ class SamplingPattern():
         self.failed = False
 
         self.n_eigs = 1
-        self.tol = 1e-7             # tol for computing low eigs
-        self.hitol = 1e-3           # to for hi eigs
+        self.tol = 1e-4             # tol for computing low eigs
+        self.hitol = 1e-2           # to for hi eigs
         self.ncv = 100              # ncv for arpack
-        self.iter_max = 8000
+        self.iter_max = 5000
         self.low_eigs = []
         self.hi_eigs = []
         self.sample_pct = 0.0        # 1/reduction factor
@@ -51,6 +51,7 @@ class SamplingPattern():
 
         # Float needed for ctypes conversion
         pattern = pattern.astype('float')
+        self.sampling = pattern #save
 
         self.sample_pct = np.sum(pattern) / (np.prod(pattern.shape) * 1.0)
         return pattern

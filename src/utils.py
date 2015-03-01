@@ -32,3 +32,7 @@ def ft2(x):
 # square root Sum of squares over axis
 def sumsq(x, axis=0):
     return np.sqrt(np.mean(abs(x) ** 2, axis=axis))
+
+
+
+
