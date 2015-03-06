@@ -53,7 +53,7 @@ class PatternEvaluator(object):
          spatial regularization filter
         
         """
-        self.root18 = zeros(32)
+        self.root18 = np.zeros(32)
         self.root18[1] = 0.04071725
         self.root18[2] =  0.03499660
         self.root18[4] =  0.02368359
@@ -86,6 +86,9 @@ class PatternEvaluator(object):
         
         self.mask = ss > mask_eps
         self.mask_sz = np.sum(self.mask.ravel())
+        
+        #normalize coil maps
+        self.sens[:,self.mask] /= ss[self.mask]
         
 
     def set_norm_fac(self, p):
@@ -153,6 +156,7 @@ class PatternEvaluator(object):
                     solved = True
                     break
             except ArpackError as e:
+                print e
                 if e.info == -8:
                     print('error on try {}'.format(j))
 
@@ -162,8 +166,6 @@ class PatternEvaluator(object):
         print "Elapased: {}s".format(t_end - t_start)
         self.pattern.hi_eigs = a1
 
-        if not solved:
-            self.pattern.hi_eigs = -1
 
 
 
@@ -229,7 +231,7 @@ class PatternEvaluator(object):
         # Compute A
         A_back = sys_sense(x_img, self.sens, self.sampling>0, self.mask)
 
-        result[:] = A_back[:] #copy / flatten
+        result[:] = A_back[:] / self.norm_fac #copy / flatten
 
         return result
 
@@ -271,6 +273,8 @@ def sys_sense(im_mask, coils, pattern, mask):
     
     zeroPat = pattern<1
     gradient = np.zeros_like(im_mask)
+    
+    ft_scale = 1.0/np.sqrt(nv*npts)
 
     #compute one coil at a time to save working memory space
     for c in range(nCoils):
@@ -284,7 +288,7 @@ def sys_sense(im_mask, coils, pattern, mask):
         scratch[zeroPat]=0
 
         # ft back
-        scratch = ft2(scratch)
+        scratch = ft2(scratch) 
         # todo: crop
         scratch = np.conj(coilPtr) * scratch
 
