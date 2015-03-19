@@ -66,7 +66,21 @@ class PatternEvaluator(object):
         self.root18[17] =  0.00491274
         self.root18[18] =  0.00396661
     
-
+    def set_single_coil(self):
+        """
+        set sensitivity to single uniform coil (e.g. test sampling
+        w/o sense )
+        """
+        
+        self.sens = np.ones([1, self.base_sz, self.base_sz], dtype='complex')
+        self.n_coils = self.sens.shape[0]
+        
+        ss = sumsq(self.sens)
+        
+        self.mask = np.ones([ self.base_sz, self.base_sz])>0
+        self.mask_sz = np.sum(self.mask.ravel())
+        
+        
     def load_sens(self, fname, mask_eps=1e-6):
         """
         load coil sensitivity and masking info from file. 
