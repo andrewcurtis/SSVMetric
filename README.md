@@ -3,6 +3,13 @@
 This is a reference implementation of the SSV metric. 
 Two important classes are contained within. 
 
+
+Requirements:
+  python distribution with numpy and scipy
+  (I recommend Anaconda or Enthought).
+  ipython to view notebooks for samples
+
+
 SamplingPattern defines default behaviour for all patterns, including their
 simulation parameters (tolerance, iteration count, etc). There are two options
 to set patterns, either set member variables _xvec_ and _yvec_ and call
