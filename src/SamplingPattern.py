@@ -39,6 +39,10 @@ class SamplingPattern():
         self.min_low = 0.0
         self.max_hi = 0.0
         self.ratio = -1.0
+        
+        #actual sampling pattern 
+        self.sampling = []
+        self.sample_pct = 0.0
 
     def calc_pattern(self):
         """ create a sampling pattern with given size/sampling.
