@@ -62,76 +62,15 @@ class R2StarEvaluator(PatternEvaluator):
 
         return result
    
+
   
+# TODO
+
 def sys_fwd_r2star(im_mask, data, coils, pattern, mask, s0, r2):
-    """
-    linear system to go from image --> kspace
-    """
-    nCoils, nv, npts  = coils.shape
-    ne = pattern.shape[0]
-    #print coils.shape
-    #print data.shape
-    image = np.zeros((nv, npts), dtype='complex128')
-    image[mask] = im_mask
-    data.shape= (nCoils,-1)
-    nD = image.ndim
-    accum = 0.0
-    tmpGrad = []
-
-    #for each coil, do S^H . I
-    for c in range(nCoils):
-        coilPtr = coils[c,...]
-        dataPtr = data[c,...]
-
-        # todo: zeropad
-        scratch = (coilPtr) * image
-        scratch = ift2(scratch)
-
-        s_reduced = scratch[pattern]
-        data[c,...] =  s_reduced[:]
-        #print sum(abs(scratch.ravel()))
-
-
-    data.shape=(-1)
+    pass
 
 
 
 #back
 def sys_bck_r2star(data, coils, pattern, mask, s0, r2):
-    """
-    linear system to go from kspace --> image
-    """
-    nCoils, nv, npts  = coils.shape
-    #print coils.shape
-    #print data.shape
-    data.shape= (nCoils,-1)
-    nD = coils[0].ndim
-    accum = 0.0
-    tmpGrad = []
-    maskSz = np.sum(mask)
-    gradient = np.zeros(maskSz)
-    scratch = np.zeros_like(coils[0])
-
-    #for each coil, do S^H . I
-    for c in range(nCoils):
-        # slice out current coil
-        coilPtr = coils[c,...]
-        dataPtr = data[c,...]
-
-        scratch = scratch*0
-
-        scratch[pattern] = dataPtr[:]
-
-        scratch = ft2(scratch)
-        # todo: crop
-        scratch = np.conj(coilPtr) * scratch
-
-        # accumulate
-        gradient = gradient + scratch[mask]
-        #print np.sum(np.abs(scratch.ravel()))
-
-
-    data.shape = (-1)
-    gout = (gradient)
-    gout.shape = (-1)
-    return gout 
+    pass
