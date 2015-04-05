@@ -53,7 +53,7 @@ class PatternEvaluator(object):
          spatial regularization filter
         
         """
-        self.root18 = zeros(32)
+        self.root18 = np.zeros(32)
         self.root18[1] = 0.04071725
         self.root18[2] =  0.03499660
         self.root18[4] =  0.02368359
